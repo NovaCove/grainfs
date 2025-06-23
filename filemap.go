@@ -264,20 +264,20 @@ func (fs *GrainFS) getObfuscatedPath(userPath string) (string, error) {
 	parts := strings.Split(userPath, string(filepath.Separator))
 	obfuscatedParts := make([]string, 0, len(parts))
 
-	currentDir := "."
+	currentUserDir := "."
 	for _, part := range parts {
 		if part == "" || part == "." {
 			continue
 		}
 
-		// Obfuscate this part
-		obfuscatedPart, err := fs.obfuscateFilename(currentDir, part)
+		// Get obfuscated name for this part (without updating filemap yet)
+		obfuscatedPart, err := fs.getObfuscatedFilename(currentUserDir, part)
 		if err != nil {
-			return "", fmt.Errorf("failed to obfuscate path component %q: %w", part, err)
+			return "", fmt.Errorf("failed to get obfuscated path component %q: %w", part, err)
 		}
 
 		obfuscatedParts = append(obfuscatedParts, obfuscatedPart)
-		currentDir = filepath.Join(currentDir, obfuscatedPart)
+		currentUserDir = filepath.Join(currentUserDir, part)
 	}
 
 	if len(obfuscatedParts) == 0 {
@@ -285,6 +285,60 @@ func (fs *GrainFS) getObfuscatedPath(userPath string) (string, error) {
 	}
 
 	return filepath.Join(obfuscatedParts...), nil
+}
+
+// getObfuscatedFilename gets the obfuscated filename without updating filemaps
+// This is used internally to avoid circular dependencies
+func (fs *GrainFS) getObfuscatedFilename(dir, filename string) (string, error) {
+	if filename == "" {
+		return "", fmt.Errorf("filename cannot be empty")
+	}
+
+	// Special handling for .grainfs directory and its contents
+	if filename == GrainFSDir || strings.HasPrefix(filename, GrainFSDir+"/") {
+		return filename, nil
+	}
+
+	// Check if we already have a mapping for this filename
+	filemap, err := fs.loadFilemap(dir)
+	if err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("failed to load filemap: %w", err)
+	}
+
+	// Look for existing mapping (reverse lookup)
+	for obfuscated, original := range filemap {
+		if original == filename {
+			return obfuscated, nil
+		}
+	}
+
+	// No existing mapping found, create new obfuscated name
+	obfuscated, err := obfuscateFilename(fs.filenameKey, filename)
+	if err != nil {
+		return "", fmt.Errorf("failed to obfuscate filename: %w", err)
+	}
+
+	// Handle collisions by adding counter suffix
+	finalObfuscated := obfuscated
+	counter := 1
+	for {
+		// Check if this obfuscated name is already used for a different original filename
+		if existingOriginal, exists := filemap[finalObfuscated]; exists {
+			if existingOriginal == filename {
+				// Same original filename, we can reuse this obfuscated name
+				return finalObfuscated, nil
+			}
+			// Collision with different original filename, try with counter
+			finalObfuscated = fmt.Sprintf("%s.%d", obfuscated, counter)
+			counter++
+			continue
+		}
+
+		// No collision, we can use this obfuscated name
+		break
+	}
+
+	return finalObfuscated, nil
 }
 
 // getUserPath converts an obfuscated path back to the user path

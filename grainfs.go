@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/go-git/go-billy/v5"
@@ -72,17 +73,56 @@ func (fs *GrainFS) Open(filename string) (billy.File, error) {
 
 // OpenFile opens a file with the specified flag and perm
 func (fs *GrainFS) OpenFile(filename string, flag int, perm os.FileMode) (billy.File, error) {
-	fs.mutex.RLock()
-	defer fs.mutex.RUnlock()
+	fs.mutex.Lock()
+	defer fs.mutex.Unlock()
 
+	return fs.openFileInternal(filename, flag, perm)
+}
+
+// openFileInternal is the internal implementation that doesn't acquire locks
+func (fs *GrainFS) openFileInternal(filename string, flag int, perm os.FileMode) (billy.File, error) {
 	if filename == "" {
 		return nil, fmt.Errorf("filename cannot be empty")
 	}
 
-	// Get obfuscated path
-	obfuscatedPath, err := fs.getObfuscatedPath(filename)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get obfuscated path: %w", err)
+	// For file creation, we need to ensure the filemap is updated
+	isCreating := (flag & os.O_CREATE) != 0
+
+	var obfuscatedPath string
+	var err error
+
+	if isCreating {
+		// When creating, use obfuscateFilename to update the filemap
+		dir := filepath.Dir(filename)
+		if dir == filename {
+			dir = "."
+		}
+		basename := filepath.Base(filename)
+
+		// Ensure directory exists and get its obfuscated path
+		if dir != "." {
+			if err := fs.mkdirAllInternal(dir, 0755); err != nil {
+				return nil, fmt.Errorf("failed to create directory: %w", err)
+			}
+		}
+
+		obfuscatedDir, err := fs.getObfuscatedPath(dir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get obfuscated directory path: %w", err)
+		}
+
+		obfuscatedBasename, err := fs.obfuscateFilename(dir, basename)
+		if err != nil {
+			return nil, fmt.Errorf("failed to obfuscate filename: %w", err)
+		}
+
+		obfuscatedPath = filepath.Join(obfuscatedDir, obfuscatedBasename)
+	} else {
+		// For opening existing files, just get the path without updating filemap
+		obfuscatedPath, err = fs.getObfuscatedPath(filename)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get obfuscated path: %w", err)
+		}
 	}
 
 	// Open the underlying file
@@ -271,22 +311,49 @@ func (fs *GrainFS) MkdirAll(path string, perm os.FileMode) error {
 	fs.mutex.Lock()
 	defer fs.mutex.Unlock()
 
+	return fs.mkdirAllInternal(path, perm)
+}
+
+// mkdirAllInternal is the internal implementation that doesn't acquire locks
+func (fs *GrainFS) mkdirAllInternal(path string, perm os.FileMode) error {
 	if path == "" || path == "." {
 		return nil
 	}
 
-	obfuscatedPath, err := fs.getObfuscatedPath(path)
-	if err != nil {
-		return fmt.Errorf("failed to get obfuscated path: %w", err)
+	// We need to create directories step by step to ensure filemaps are created
+	// Split the path and create each directory level
+	parts := strings.Split(filepath.Clean(path), string(filepath.Separator))
+	currentPath := ""
+
+	for _, part := range parts {
+		if part == "" || part == "." {
+			continue
+		}
+
+		if currentPath == "" {
+			currentPath = part
+		} else {
+			currentPath = filepath.Join(currentPath, part)
+		}
+
+		// Get obfuscated path for this level
+		obfuscatedPath, err := fs.getObfuscatedPath(currentPath)
+		if err != nil {
+			return fmt.Errorf("failed to get obfuscated path for %s: %w", currentPath, err)
+		}
+
+		// Create the directory if it doesn't exist
+		if err := fs.underlying.MkdirAll(obfuscatedPath, perm); err != nil {
+			return fmt.Errorf("failed to create directory %s: %w", obfuscatedPath, err)
+		}
+
+		// Initialize .grainfs directory for this level
+		if err := fs.ensureGrainFSDir(currentPath); err != nil {
+			return fmt.Errorf("failed to ensure .grainfs directory for %s: %w", currentPath, err)
+		}
 	}
 
-	// Create the directory structure
-	if err := fs.underlying.MkdirAll(obfuscatedPath, perm); err != nil {
-		return err
-	}
-
-	// Initialize .grainfs directory and filemap for the new directory
-	return fs.ensureGrainFSDir(obfuscatedPath)
+	return nil
 }
 
 // Symlink interface implementation

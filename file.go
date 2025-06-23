@@ -86,6 +86,16 @@ func (f *EncryptedFile) ReadAt(p []byte, off int64) (n int, err error) {
 		return 0, fmt.Errorf("negative offset")
 	}
 
+	// Ensure the decrypting reader is initialized
+	if f.decryptingReader == nil {
+		return 0, fmt.Errorf("decrypting reader not initialized")
+	}
+
+	// Make sure the reader has been initialized (data decrypted)
+	if !f.decryptingReader.initialized {
+		return 0, fmt.Errorf("decrypting reader data not available")
+	}
+
 	if off >= int64(len(f.decryptingReader.decrypted)) {
 		return 0, io.EOF
 	}
@@ -262,7 +272,7 @@ func (f *EncryptedFile) Unlock() error {
 	return fmt.Errorf("file unlocking not supported by underlying filesystem")
 }
 
-// initializeReader sets up the decrypting reader
+// initializeReader sets up the decrypting reader and reads all data
 func (f *EncryptedFile) initializeReader() error {
 	// Seek to beginning of file
 	if _, err := f.underlying.Seek(0, io.SeekStart); err != nil {
@@ -275,6 +285,16 @@ func (f *EncryptedFile) initializeReader() error {
 	if err != nil {
 		return fmt.Errorf("failed to create decrypting reader: %w", err)
 	}
+
+	// Force initialization by reading a byte (this triggers the initialize method)
+	// We'll read and then reset the position
+	_, err = f.decryptingReader.Read(make([]byte, 1))
+	if err != nil && err != io.EOF {
+		return fmt.Errorf("failed to initialize decrypting reader: %w", err)
+	}
+
+	// Reset position to beginning
+	f.decryptingReader.pos = 0
 
 	return nil
 }
