@@ -28,6 +28,43 @@ func NewFilemapManager(fs *GrainFS) *FilemapManager {
 	}
 }
 
+// obfuscateDirName creates an obfuscated directory name for the given original directory name
+// and then updates the filemap accordingly.
+func (fs *GrainFS) obfuscateDirName(dir string) (string, error) {
+	if dir == "" || dir == "." {
+		return ".", nil
+	}
+
+	// Clean the path
+	dir = filepath.Clean(dir)
+
+	// Split path into components
+	parts := strings.Split(dir, string(filepath.Separator))
+	obfuscatedParts := make([]string, 0, len(parts))
+
+	currentUserDir := "."
+	for _, part := range parts {
+		if part == "" || part == "." {
+			continue
+		}
+
+		// Obfuscate this part and update filemap
+		obfuscatedPart, err := fs.obfuscateFilename(currentUserDir, part)
+		if err != nil {
+			return "", fmt.Errorf("failed to obfuscate directory component %q: %w", part, err)
+		}
+
+		obfuscatedParts = append(obfuscatedParts, obfuscatedPart)
+		currentUserDir = filepath.Join(currentUserDir, part)
+	}
+
+	if len(obfuscatedParts) == 0 {
+		return ".", nil
+	}
+
+	return filepath.Join(obfuscatedParts...), nil
+}
+
 // obfuscateFilename creates an obfuscated filename for the given directory and original filename
 func (fs *GrainFS) obfuscateFilename(dir, filename string) (string, error) {
 	if filename == "" {

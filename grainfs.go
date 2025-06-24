@@ -353,7 +353,10 @@ func (fs *GrainFS) mkdirAllInternal(path string, perm os.FileMode) error {
 		}
 	}
 
-	return nil
+	pathName := filepath.Dir(path)
+	dirName := filepath.Base(path)
+	_, err := fs.obfuscateFilename(pathName, dirName)
+	return err
 }
 
 // Symlink interface implementation
