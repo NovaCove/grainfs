@@ -279,9 +279,8 @@ GrainFS is fully compatible with the billy ecosystem:
 5. Submit a pull request
 
 ## License
-
-[Add your license here]
+MIT
 
 ## Security Disclosure
 
-For security issues, please email [security contact] instead of using the issue tracker.
+For security issues, please email security@novacove.ai instead of using the issue tracker.
