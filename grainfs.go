@@ -71,6 +71,26 @@ func (fs *GrainFS) Open(filename string) (billy.File, error) {
 	return fs.OpenFile(filename, os.O_RDONLY, 0)
 }
 
+func (fs *GrainFS) Write(filename string, data []byte) (n int, err error) {
+	fs.mutex.Lock()
+	defer fs.mutex.Unlock()
+
+	// Open the file in write mode
+	file, err := fs.openFileInternal(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open file for writing: %w", err)
+	}
+	defer file.Close()
+
+	// Write data to the file
+	n, err = file.Write(data)
+	if err != nil {
+		return n, fmt.Errorf("failed to write data: %w", err)
+	}
+
+	return n, nil
+}
+
 // OpenFile opens a file with the specified flag and perm
 func (fs *GrainFS) OpenFile(filename string, flag int, perm os.FileMode) (billy.File, error) {
 	fs.mutex.Lock()
@@ -90,6 +110,22 @@ func (fs *GrainFS) openFileInternal(filename string, flag int, perm os.FileMode)
 
 	var obfuscatedPath string
 	var err error
+
+	// NOTE(ttacon): Do we want to optimistically add directories? It's non-standard but might be
+	// nice.
+	//
+	// First make sure the directory exists.
+	// dirName := filepath.Dir(filename)
+	// if dirName != filename {
+	// 	if dir, err := fs.Stat(dirName); err != nil {
+	// 		if os.IsNotExist(err) {
+	// 			return nil, fmt.Errorf("directory does not exist: %s", dirName)
+	// 		}
+	// 		return nil, fmt.Errorf("failed to stat directory: %w", err)
+	// 	} else if !dir.IsDir() {
+	// 		return nil, fmt.Errorf("path is not a directory: %s", dirName)
+	// 	}
+	// }
 
 	if isCreating {
 		// When creating, use obfuscateFilename to update the filemap
@@ -118,6 +154,8 @@ func (fs *GrainFS) openFileInternal(filename string, flag int, perm os.FileMode)
 
 		obfuscatedPath = filepath.Join(obfuscatedDir, obfuscatedBasename)
 	} else {
+		// DIDNTDO(ttacon): this should fail if the directory doesn't exist
+
 		// For opening existing files, just get the path without updating filemap
 		obfuscatedPath, err = fs.getObfuscatedPath(filename)
 		if err != nil {
@@ -241,7 +279,38 @@ func (fs *GrainFS) Remove(filename string) error {
 
 	// Remove the file from underlying filesystem
 	if err := fs.underlying.Remove(obfuscatedPath); err != nil {
-		return err
+		// Special case for removing directories - if the directory is not empty, it will fail
+		// But this will always happen due to our filemap management. So see if this is a directory
+		// that is empty besides the .grainfs directory.
+		if !strings.Contains(err.Error(), "directory not empty") {
+			return err
+		}
+
+		// Check if the directory is empty except for the .grainfs directory
+		origErr := err
+		infos, err := fs.underlying.ReadDir(obfuscatedPath)
+		if err != nil {
+			return origErr
+		}
+
+		for _, info := range infos {
+			if info.Name() != GrainFSDir {
+				return origErr
+			}
+		}
+
+		// Remove the .grainfs directory
+		if err := fs.purgeGrainFSSubDir(obfuscatedPath); err != nil {
+			return err
+		}
+
+		// Now try to remove the directory again
+		if err := fs.underlying.Remove(obfuscatedPath); err != nil {
+			// If it still fails, return the error
+			return err
+		}
+
+		return nil
 	}
 
 	// Update filemap
@@ -252,6 +321,25 @@ func (fs *GrainFS) Remove(filename string) error {
 	obfuscatedBase := filepath.Base(obfuscatedPath)
 
 	return fs.removeFromFilemap(dir, obfuscatedBase)
+}
+
+func (fs *GrainFS) purgeGrainFSSubDir(path string) error {
+	// Read the directory and remove the .grainfs subdirectory
+	entries, err := fs.underlying.ReadDir(filepath.Join(path, GrainFSDir))
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := fs.underlying.Remove(filepath.Join(path, GrainFSDir, entry.Name())); err != nil {
+			return err
+		}
+	}
+
+	// Finally, remove the .grainfs directory itself
+	if err := fs.underlying.Remove(filepath.Join(path, GrainFSDir)); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Join joins path elements

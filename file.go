@@ -119,9 +119,7 @@ func (f *EncryptedFile) Write(p []byte) (n int, err error) {
 
 	if f.closed {
 		return 0, os.ErrClosed
-	}
-
-	if !f.isWriteMode {
+	} else if !f.isWriteMode {
 		return 0, fmt.Errorf("file not opened for writing")
 	}
 
@@ -223,9 +221,7 @@ func (f *EncryptedFile) Truncate(size int64) error {
 
 	if f.closed {
 		return os.ErrClosed
-	}
-
-	if !f.isWriteMode {
+	} else if !f.isWriteMode {
 		return fmt.Errorf("file not opened for writing")
 	}
 
