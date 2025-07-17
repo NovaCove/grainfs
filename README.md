@@ -1,5 +1,7 @@
 # GrainFS: Encrypted Billy Filesystem
 
+**WARNING: THIS IS NOT STABLE - USE AT YOUR OWN RISK**
+
 GrainFS is a transparent encryption layer that implements the `billy.Filesystem` interface from `github.com/go-git/go-billy/v5`. It provides seamless file content encryption and filename obfuscation while maintaining full compatibility with the billy ecosystem.
 
 ## Features
