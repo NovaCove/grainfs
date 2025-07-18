@@ -1,3 +1,10 @@
+## [1.0.1](https://github.com/NovaCove/grainfs/compare/v1.0.0...v1.0.1) (2025-07-18)
+
+
+### Bug Fixes
+
+* remove unused function from earlier prototype ([70fe9da](https://github.com/NovaCove/grainfs/commit/70fe9daa1637e052631176fb70ee4c64cde1ad36))
+
 # 1.0.0 (2025-07-18)
 
 
