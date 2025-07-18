@@ -281,13 +281,6 @@ func (fs *GrainFS) saveFilemap(dir string, filemap FilenameMap) error {
 	return nil
 }
 
-// invalidateFilemapCache removes a directory's filemap from the cache
-func (fs *GrainFS) invalidateFilemapCache(dir string) {
-	fs.filemapManager.cacheMutex.Lock()
-	delete(fs.filemapManager.cache, dir)
-	fs.filemapManager.cacheMutex.Unlock()
-}
-
 // getObfuscatedPath converts a user path to the obfuscated path on disk
 func (fs *GrainFS) getObfuscatedPath(userPath string) (string, error) {
 	if userPath == "" || userPath == "." {

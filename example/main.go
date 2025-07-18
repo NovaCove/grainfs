@@ -11,7 +11,6 @@ import (
 
 func main() {
 	// Create an underlying filesystem (using memory filesystem for demo)
-	// underlying := memfs.New()
 	underlying := osfs.New("./demo")
 
 	// Create GrainFS with encryption

@@ -347,8 +347,6 @@ func (fs *GrainFS) Join(elem ...string) string {
 	return filepath.Join(elem...)
 }
 
-// Dir interface implementation
-
 // ReadDir reads the directory and returns file information
 func (fs *GrainFS) ReadDir(path string) ([]os.FileInfo, error) {
 	fs.mutex.RLock()
@@ -611,15 +609,4 @@ func (fs *GrainFS) TempFile(dir, prefix string) (billy.File, error) {
 	}
 
 	return encFile, nil
-}
-
-// FileInfoWrapper wraps os.FileInfo to show original filenames
-type FileInfoWrapper struct {
-	os.FileInfo
-	originalName string
-}
-
-// Name returns the original filename
-func (w *FileInfoWrapper) Name() string {
-	return w.originalName
 }

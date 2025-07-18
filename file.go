@@ -32,7 +32,7 @@ type EncryptedFile struct {
 	closed bool
 }
 
-// Ensure EncryptedFile implements billy.File
+// HACK: Ensure EncryptedFile implements billy.File
 var _ billy.File = (*EncryptedFile)(nil)
 
 // Read reads decrypted data from the file
@@ -66,14 +66,15 @@ func (f *EncryptedFile) ReadAt(p []byte, off int64) (n int, err error) {
 
 	if f.closed {
 		return 0, os.ErrClosed
-	}
-
-	if f.isWriteMode {
+	} else if f.isWriteMode {
 		return 0, fmt.Errorf("file opened for writing")
 	}
 
 	// For encrypted files, ReadAt is complex due to encryption overhead
 	// We'll implement a simple version that reads the entire file and returns the requested portion
+	//
+	// This would be an ideal place to optimize for larger files or specific use cases,
+	// but for now, we'll keep it simple so that we can get to a functional state.
 	if !f.readInitialized {
 		if err := f.initializeReader(); err != nil {
 			return 0, fmt.Errorf("failed to initialize reader: %w", err)
@@ -81,22 +82,14 @@ func (f *EncryptedFile) ReadAt(p []byte, off int64) (n int, err error) {
 		f.readInitialized = true
 	}
 
-	// Check bounds
+	// Run through our checks to ensure that we can read from the decrypting reader.
 	if off < 0 {
 		return 0, fmt.Errorf("negative offset")
-	}
-
-	// Ensure the decrypting reader is initialized
-	if f.decryptingReader == nil {
+	} else if f.decryptingReader == nil {
 		return 0, fmt.Errorf("decrypting reader not initialized")
-	}
-
-	// Make sure the reader has been initialized (data decrypted)
-	if !f.decryptingReader.initialized {
+	} else if !f.decryptingReader.initialized {
 		return 0, fmt.Errorf("decrypting reader data not available")
-	}
-
-	if off >= int64(len(f.decryptingReader.decrypted)) {
+	} else if off >= int64(len(f.decryptingReader.decrypted)) {
 		return 0, io.EOF
 	}
 
@@ -225,47 +218,33 @@ func (f *EncryptedFile) Truncate(size int64) error {
 		return fmt.Errorf("file not opened for writing")
 	}
 
-	// For encrypted files, truncation is complex
-	// We'll support truncating to 0 (clearing the file)
-	if size == 0 {
-		// Reset the file
-		if f.encryptingWriter != nil {
-			f.encryptingWriter = nil
-		}
+	if size != 0 {
+		return fmt.Errorf("truncation to non-zero size not supported for encrypted files")
+	}
 
-		// Truncate underlying file to 0
-		if err := f.underlying.Truncate(0); err != nil {
-			return err
-		}
+	// For encrypted files, truncation is complex, as such we'll support truncating to 0 (clearing
+	// the file).
+	if f.encryptingWriter != nil {
+		f.encryptingWriter = nil
+	}
 
-		// Seek to beginning
-		_, err := f.underlying.Seek(0, io.SeekStart)
+	if err := f.underlying.Truncate(0); err != nil {
 		return err
 	}
 
-	return fmt.Errorf("truncation to non-zero size not supported for encrypted files")
+	_, err := f.underlying.Seek(0, io.SeekStart)
+	return err
+
 }
 
 // Lock locks the file (if supported by underlying filesystem)
 func (f *EncryptedFile) Lock() error {
-	type locker interface {
-		Lock() error
-	}
-	if l, ok := f.underlying.(locker); ok {
-		return l.Lock()
-	}
-	return fmt.Errorf("file locking not supported by underlying filesystem")
+	return f.underlying.Lock()
 }
 
 // Unlock unlocks the file (if supported by underlying filesystem)
 func (f *EncryptedFile) Unlock() error {
-	type unlocker interface {
-		Unlock() error
-	}
-	if u, ok := f.underlying.(unlocker); ok {
-		return u.Unlock()
-	}
-	return fmt.Errorf("file unlocking not supported by underlying filesystem")
+	return f.underlying.Unlock()
 }
 
 // initializeReader sets up the decrypting reader and reads all data
