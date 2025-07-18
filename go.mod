@@ -8,6 +8,6 @@ require (
 )
 
 require (
-	github.com/cyphar/filepath-securejoin v0.3.6 // indirect
-	golang.org/x/sys v0.29.0 // indirect
+	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
+	golang.org/x/sys v0.34.0 // indirect
 )
