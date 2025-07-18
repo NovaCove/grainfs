@@ -286,3 +286,4 @@ MIT
 ## Security Disclosure
 
 For security issues, please email security@novacove.ai instead of using the issue tracker.
+
